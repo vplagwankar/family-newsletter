@@ -1,6 +1,6 @@
 # Lagwankar Family Chronicle
 
-A private family newsletter website for the Lagwankar family. Bilingual (English / Kannada), with a public-facing site and a password-protected admin panel.
+A private family newsletter website for the Lagwankar family. Bilingual (English / Kannada), with a public-facing site, a password-protected admin panel, and an ASP.NET Core backend API.
 
 ---
 
@@ -11,13 +11,15 @@ A private family newsletter website for the Lagwankar family. Bilingual (English
 - Events listing with category and year filters
 - Event detail pages with photo galleries
 - Upcoming events with countdown timer and calendar export
+- Calendar view
 - Photo gallery with albums
 - Family directory with generation filter and birthday highlights
 - Interactive family tree (recursive, zoom in/out, click for member details)
 - Full-text search across events, members, and announcements
-- English / Kannada language toggle
+- English / Kannada language toggle (preference saved in `localStorage`)
 
-**Admin panel** (`/admin`)
+**Admin panel** (`/admin/login`)
+- JWT-based login
 - Dashboard with stats and quick actions
 - Create and edit events (bilingual fields, draft / publish workflow)
 - Manage family members (add, edit, soft-delete)
@@ -26,18 +28,20 @@ A private family newsletter website for the Lagwankar family. Bilingual (English
 
 ---
 
-## Tech stack
+## Architecture
 
-| Layer | Technology |
-|---|---|
-| UI framework | React 18 |
-| Build tool | Vite 3 |
-| Routing | React Router v6 |
-| Styling | Tailwind CSS 3 |
-| Internationalisation | react-i18next |
-| Data layer | Static mock data (no backend) |
+The repo contains two apps:
 
-All data lives in `src/mock/` as JavaScript files. An in-memory store (`src/mock/store.js`) absorbs admin CRUD operations for the duration of a browser session — data resets on page refresh. To add a real backend, only `src/services/api.js` needs to change.
+| Part | Folder | Technology |
+|---|---|---|
+| Frontend (SPA) | `src/` | React 18, Vite 3, React Router v6, Tailwind CSS 3, react-i18next |
+| Backend API | `api/` | ASP.NET Core (.NET 8), JWT bearer auth |
+
+The frontend calls the API over HTTP. All data access is in `src/services/api.js`, and login/session handling is in `src/services/authService.js`. Both currently use a hard-coded base URL of `http://localhost:5000/api`.
+
+**Data is not persistent.** The API keeps everything in an in-memory singleton (`api/Data/DataStore.cs`) seeded from `api/Data/SeedData.cs`. Any create / edit / delete is lost when the API restarts.
+
+> `src/mock/` is a leftover from the earlier frontend-only version. The data pages no longer read from it, but `AdminGalleryPage.jsx` still imports `src/mock/store.js`. It can be removed once that page is moved onto the API.
 
 ---
 
@@ -47,52 +51,54 @@ All data lives in `src/mock/` as JavaScript files. An in-memory store (`src/mock
 |---|---|---|
 | Node.js | 18.x | `node -v` |
 | npm | 9.x | `npm -v` |
-
-Install Node.js from [nodejs.org](https://nodejs.org) (LTS version recommended). npm is bundled with it.
+| .NET SDK | 8.0 | `dotnet --version` |
 
 ---
 
 ## Local setup
 
-### 1. Clone or download the project
+You need two terminals: one for the API and one for the frontend.
+
+### 1. Clone the project
 
 ```bash
 git clone <your-repo-url>
 cd family-newsletter
 ```
 
-Or if you downloaded a ZIP, extract it and open a terminal in the folder.
+### 2. Start the API
 
-### 2. Install dependencies
+```bash
+cd api
+dotnet run
+```
+
+The API must listen on `http://localhost:5000` (the frontend expects this). If `dotnet run` picks another port, start it explicitly:
+
+```bash
+dotnet run --urls http://localhost:5000
+```
+
+CORS only allows the Vite dev server origins `http://localhost:5173` and `http://localhost:5174`.
+
+### 3. Start the frontend
+
+In a second terminal, from the repo root:
 
 ```bash
 npm install
-```
-
-This installs React, Vite, Tailwind CSS, react-i18next, and all other packages listed in `package.json`. Takes about 30 seconds.
-
-### 3. Start the development server
-
-```bash
 npm run dev
 ```
 
-Vite starts a local server, typically at `http://localhost:5173`. Open that URL in your browser.
-
-The dev server supports hot module replacement — the browser updates instantly as you edit source files without a full reload.
+Open `http://localhost:5173`.
 
 ---
 
 ## Admin login
 
-The admin panel is at `/admin/login`.
+The admin panel is at `/admin/login`. Admin accounts are seeded in `api/Data/SeedData.cs` and checked by `api/Controllers/AuthController.cs`. On success the API returns a JWT (valid for 8 hours), which the frontend stores in `localStorage` and sends as a `Bearer` token on admin requests.
 
-| Field | Value |
-|---|---|
-| Email | `admin@family.com` |
-| Password | `admin123` |
-
-These credentials are defined in `src/mock/admins.js` and are only for local development.
+These accounts are for development only. Passwords are stored in plain text and the JWT signing key in `api/appsettings.json` is a placeholder. Replace both before any real deployment.
 
 ---
 
@@ -100,91 +106,137 @@ These credentials are defined in `src/mock/admins.js` and are only for local dev
 
 ```
 family-newsletter/
-├── public/                  # Static assets (favicon, etc.)
+├── api/                          # ASP.NET Core backend
+│   ├── Controllers/              # Auth, Events, Members, Albums, Announcements, FamilyTree, Search
+│   ├── Data/
+│   │   ├── DataStore.cs          # In-memory store and CRUD
+│   │   └── SeedData.cs           # Initial events, members, albums, announcements, admins
+│   ├── Models/                   # DTOs / entities
+│   ├── Program.cs                # CORS, JWT auth, DI setup
+│   ├── appsettings.json          # JWT key and logging
+│   └── FamilyNewsletter.Api.csproj
+├── public/                       # Static assets (favicon)
 ├── src/
 │   ├── components/
-│   │   ├── admin/           # Admin layout and shared admin components
-│   │   ├── home/            # Home page sections (hero, spotlight, etc.)
-│   │   ├── layout/          # Navbar and Footer
-│   │   └── ui/              # Shared UI (Badge, Spinner, Toast, etc.)
-│   ├── context/             # React contexts (AuthContext, LanguageContext)
-│   ├── hooks/               # Custom hooks (useAuth, useLanguage)
+│   │   ├── admin/                # Admin layout
+│   │   ├── events/               # Event card, grid, detail, photo grid
+│   │   ├── home/                 # Hero, spotlight, announcements, etc.
+│   │   ├── layout/               # Navbar and Footer
+│   │   ├── members/              # Member card and profile
+│   │   └── ui/                   # Shared UI (Badge, Button, Card, Modal, Lightbox, Spinner, Toast)
+│   ├── context/                  # AuthContext, LanguageContext
+│   ├── hooks/                    # useAuth, useLanguage
 │   ├── i18n/
-│   │   ├── en.json          # English translations
-│   │   └── kn.json          # Kannada translations
-│   ├── mock/
-│   │   ├── admins.js        # Mock admin credentials
-│   │   ├── albums.js        # Mock photo albums
-│   │   ├── announcements.js # Mock announcements (births, achievements, etc.)
-│   │   ├── events.js        # Mock events (past + upcoming)
-│   │   ├── members.js       # 66 family members across 5 generations
-│   │   └── store.js         # In-memory mutable store for admin CRUD
-│   ├── pages/               # One file per route (public + admin)
+│   │   ├── i18n.js               # i18next initialisation
+│   │   ├── en.json               # English translations
+│   │   └── kn.json               # Kannada translations
+│   ├── mock/                     # Legacy frontend-only mock data (mostly unused)
+│   ├── pages/                    # One file per route (public + admin)
 │   ├── services/
-│   │   └── api.js           # All data access — the only file to change for a real backend
-│   ├── App.jsx              # Routes and layout wrappers
-│   ├── i18n.js              # i18next initialisation
-│   ├── index.css            # Global styles and Tailwind directives
-│   └── main.jsx             # React entry point
-├── tailwind.config.js       # Custom colours (cream, terracotta, saffron, warmgreen)
+│   │   ├── api.js                # HTTP calls to the backend
+│   │   ├── authService.js        # Login, logout, session and token handling
+│   │   └── storageService.js     # localStorage helper (language preference)
+│   ├── App.jsx                   # Routes and layout wrappers
+│   ├── index.css                 # Global styles and Tailwind directives
+│   └── main.jsx                  # React entry point
+├── index.html
+├── tailwind.config.js            # Custom colours (cream, terracotta, saffron, warmgreen)
+├── postcss.config.js
 ├── vite.config.js
 └── package.json
 ```
 
 ---
 
-## Available commands
+## Routes
 
-| Command | What it does |
+| Path | Page |
 |---|---|
-| `npm run dev` | Start local development server with HMR |
-| `npm run build` | Compile and bundle for production into `dist/` |
-| `npm run preview` | Serve the `dist/` build locally to test before deploying |
+| `/` | Home |
+| `/events`, `/events/:id` | Events list / detail |
+| `/upcoming` | Upcoming events |
+| `/calendar` | Calendar |
+| `/family-tree` | Family tree |
+| `/gallery` | Photo gallery |
+| `/members` | Family directory |
+| `/search` | Search |
+| `/admin/login` | Admin login |
+| `/admin/dashboard` | Admin dashboard (auth required) |
+| `/admin/posts/new`, `/admin/posts/:id/edit` | Create / edit event (auth required) |
+| `/admin/members` | Manage members (auth required) |
+| `/admin/gallery` | Manage photos (auth required) |
+| `/admin/family-tree/edit` | Edit family tree (auth required) |
 
 ---
 
-## Building for production
+## Available commands
 
-```bash
-npm run build
-```
+**Frontend (repo root)**
 
-Output goes to `dist/`. The contents of that folder can be deployed to any static host (Vercel, Netlify, Firebase Hosting, GitHub Pages, etc.).
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the Vite dev server with HMR |
+| `npm run build` | Bundle for production into `dist/` |
+| `npm run preview` | Serve the `dist/` build locally |
 
-To verify the build locally before deploying:
+**Backend (`api/`)**
 
-```bash
-npm run preview
-```
+| Command | What it does |
+|---|---|
+| `dotnet run` | Start the API |
+| `dotnet build` | Compile the API |
+
+---
+
+## Deploying
+
+The frontend and the API deploy separately.
+
+**Frontend** (static build, `npm run build` → `dist/`)
+- Works on Vercel, Netlify, or GitHub Pages.
+- The app uses `BrowserRouter`, so the host must rewrite unknown paths to `index.html`. Otherwise refreshing or opening a direct link such as `/events` returns a 404.
+- GitHub Pages also needs a `base` path in `vite.config.js` and either `HashRouter` or a `404.html` fallback.
+
+**Backend** (ASP.NET Core)
+- Needs a host that runs .NET 8 (Azure App Service, a container, etc.). Static hosts cannot run it.
+
+**Before going live, change these:**
+1. Replace the hard-coded `http://localhost:5000/api` in `src/services/api.js` and `src/services/authService.js` with the deployed API URL (for example via a Vite env variable such as `import.meta.env.VITE_API_BASE`).
+2. Add the deployed frontend origin to the CORS policy in `api/Program.cs` (it only allows localhost today).
+3. Move `Jwt:Key` out of `appsettings.json` into an environment variable or secret store.
+4. Replace the seeded plain-text admin accounts with hashed credentials.
+5. Replace the in-memory `DataStore` with a real database, or all content resets whenever the API restarts.
 
 ---
 
 ## Troubleshooting
 
+**Pages load but show errors or no data**
+
+The API isn't running or isn't on port 5000. Start it with `dotnet run --urls http://localhost:5000` inside `api/`.
+
+**CORS error in the browser console**
+
+The frontend must run on port 5173 or 5174. Other ports are blocked by the CORS policy in `api/Program.cs`.
+
+**Admin changes disappear**
+
+Expected. Data lives in API memory and resets when the API restarts.
+
 **Blank page after editing files**
 
-Vite's module cache can get stale after large changes. Delete the cache and restart:
+Vite's module cache can get stale after large changes:
 
 ```bash
-# Delete Vite cache
 rm -rf node_modules/.vite
-
-# Restart dev server
 npm run dev
 ```
 
-Then do a hard refresh in the browser (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+Then hard refresh (`Ctrl+Shift+R` / `Cmd+Shift+R`).
 
 **Port already in use**
 
-If port 5173 is taken, Vite will try the next available port and print it in the terminal. You can also set a fixed port in `vite.config.js`:
-
-```js
-export default defineConfig({
-  plugins: [react()],
-  server: { port: 3000 },
-})
-```
+Vite will use the next free port, but the API's CORS policy only allows 5173 and 5174. Free up the port, or add the new origin in `api/Program.cs`.
 
 **`node_modules` missing or corrupted**
 
@@ -192,16 +244,3 @@ export default defineConfig({
 rm -rf node_modules package-lock.json
 npm install
 ```
-
----
-
-## Moving to a real backend
-
-All data access is centralised in `src/services/api.js`. Every exported function returns a `Promise`, mimicking real async behaviour. To connect a real backend:
-
-1. Create your database (Supabase, PostgreSQL, Firebase, etc.)
-2. Rewrite the functions in `api.js` to call your API instead of reading from `store.*`
-3. Replace the mock auth in `src/context/AuthContext.jsx` with real token-based auth
-4. Replace `src/mock/admins.js` credentials with environment variables
-
-No other files need to change.
